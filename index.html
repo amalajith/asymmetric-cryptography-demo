@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <h1>Hello world</h1>
+    <form id="form">
+        <input type="password" name="password">
+        <button>Submit</button>
+    </form>
+
+    <script>
+        async function main() {
+
+            function base64ToArrayBuffer(base64) {
+                let binary_string = window.atob(base64);
+                let len = binary_string.length;
+                let bytes = new Uint8Array(len);
+                for (var i = 0; i < len; i++) {
+                    bytes[i] = binary_string.charCodeAt(i);
+                }
+                return bytes.buffer;
+            }
+
+            function arrayBufferToBase64(buffer) {
+                let binary = '';
+                let bytes = new Uint8Array(buffer);
+                let len = bytes.byteLength;
+                for (let i = 0; i < len; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return window.btoa(binary);
+            }
+
+            async function importPublicKey(spki) {
+                const binaryDer = base64ToArrayBuffer(spki);
+                let cryptoKey = await window.crypto.subtle
+                    .importKey(
+                        "spki",
+                        binaryDer, {
+                            name: 'RSA-OAEP',
+                            modulusLength: 4096,
+                            hash: {
+                                name: 'sha-256'
+                            }
+                        },
+                        false,
+                        ["encrypt"]
+                    );
+                return cryptoKey;
+            }
+
+
+            try {
+                const res = await fetch('/public-key');
+                const data = await res.json();
+                const publicKey = data.publicKey;
+                sessionStorage.setItem('public-key', publicKey);
+
+            } catch (e) {
+                console.log(e);
+            }
+
+            const form = document.getElementById('form');
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                //Get the password from the field
+                const formData = new FormData(form);
+                const password  = formData.get('password');
+
+                //Encode the password
+                const encoder = new TextEncoder();
+                const encPassword = encoder.encode(password);
+
+                let publicKeyString = sessionStorage.getItem('public-key');
+                const publicKey = await importPublicKey(publicKeyString);
+
+                const encryptedData = await window.crypto.subtle.encrypt(
+                    {
+                        name: "RSA-OAEP"
+                    },
+                    publicKey,
+                    encPassword,
+                );
+
+                const encryptedPassword = arrayBufferToBase64(encryptedData);
+
+                console.log(encryptedPassword);
+
+                //Send to server
+
+                const response = await fetch('/decrypt-using-private', {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        password: encryptedPassword,
+                    })
+                });
+
+                console.log(response.json());
+
+            })
+        }
+
+        if (document.readyState === "loading") {
+            // Loading hasn't finished yet
+            document.addEventListener("DOMContentLoaded", main);
+        } else {
+            // `DOMContentLoaded` has already fired
+            main();
+        }
+    </script>
+</body>
+</html>
